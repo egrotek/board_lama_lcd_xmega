@@ -1,0 +1,1779 @@
+#include <Wire.h>
+#include <EEPROM.h>
+#include "DHT.h"
+#include <LiquidCrystal.h>
+#include "xmDAC.h"
+#include "LedControl.h"
+
+#define GSM Serial
+#define sim800 Serial
+#define serialmonitor Serial3
+#define DHTPIN 24
+#define DHTPIN2 25
+#define nozel 23
+#define fan 22
+#define r3 22
+#define r4 21
+#define buz 18
+#define pwr 10
+#define DIN   13
+#define CLK   12
+#define LOAD  11
+#define DHTTYPE DHT21
+#define debug 1
+float hume1, teme1;
+String apn;
+String telkomsel1 = "internet";
+String indosat2 = "indosatgprs";
+String xl3 = "xlunlimited";
+String tri4 = "3gprs";
+String axis5 = "axis";
+//String sernum = "0QyeFxjP"; // TOKEN WEB
+String sernum;
+String versi = "3.0.0";
+
+const byte rs = 0, en = 1, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
+byte memr1 = 44, memr2 = 55, memr3 = 11, memr4 = 22, memtemmax = 6, memtemmin = 5, memhummin = 2, memhummax = 3, memlight = 0, memcontras = 1, memled7 = 7, memapn = 8 , memcode = 10 , mk0 = 100, mk1 = 101, mk2 = 102, mk3 = 103, mk4 = 104, mk5 = 105, mk6 = 106, mk7 = 107, mjeda = 108; // Pendefinisian lokasi memori pada EEPROM
+
+short int default_light = 255, default_contras = 1200, default_led7 = 10; //pemberian nilai default
+byte satu = 18, dua = 217, tiga = 91, empat = 86, lima = 79, enam = 207, tujuh = 19, delapan = 223, sembilan = 95, nol = 159, dot = 31, on = 35, off = 30;      ////  pendefinisian code karakter untuk di tampilkan pada sevensegment
+byte satucom = 50, duacom = 249, tigacom = 123, empatcom = 118, limacom = 111, enamcom = 239, tujuhcom = 51, delapancom = 255, sembilancom = 127, nolcom = 191; ////  pendefinisian code karakter ber titik untuk di tampilkan pada sevensegment
+LedControl lc = LedControl(DIN, CLK, LOAD, 1); //
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+DHT dht(DHTPIN, DHTTYPE);
+DHT dht2(DHTPIN2, DHTTYPE);
+xmDAC dac = xmDAC(xmDAC::DAC_PORT_B);
+
+char hummin[4]; // untuk menyimpan karakter pada saat menekan pada menu HUMANDITY DAN SUHU
+char hummax[4];
+char tempmin[4];
+char tempmax[4];
+String hummin2;
+String hummax2;
+String tempmin2;
+String tempmax2;
+char data[4];
+byte state = 0;
+String hasil;
+char keypad = ' ';
+
+String data1, data2, data3, data4, data5, data6, data7, data8 , data9, data10;
+String content = "";
+int gal = 0, suk = 0;
+int upload = 1;
+
+float hume;
+float teme;
+byte stpump = 0;
+byte stfan = 0;
+
+byte xtmin=26,xtmax=29,xhumin=75,xhumax=90,xcon=120,xlig=255,xled7=15;
+
+unsigned long durasi = 0;
+byte statemenu = 0;
+float set = 0;
+byte ulangkode = 0;
+
+int xhume1, xteme1;
+
+void setup()
+{ int result = dac.begin(xmDAC::DUAL_CHANNEL_MODE, xmDAC::VREF_VCC);
+  pinMode(19, OUTPUT);
+  analogWrite(19, default_light);
+  lcd.begin(20, 4);
+  dac.write(0, default_contras);
+  delay(1000);
+  lcd.setCursor(0, 0);
+  lcd.print("Kontrol Rumah Jamur ");
+  lcd.setCursor(3, 1);
+  lcd.print("IT Telkom PWT    ");
+  lcd.setCursor(0, 3);
+  lcd.print("========2018=======");
+
+  serialmonitor.begin(9600);
+  serialmonitor.println("SETUP");
+  powerGSM();
+  lc.shutdown(0, false);   // mengaktidkan chips 0
+  lc.setIntensity(0, 15);  // nilai kecerahan seven segment
+  lc.clearDisplay(0);      // menghapus tampilan pada chips 0
+
+  byte lamp = EEPROM.read(memlight); //membaca isi dari memori light
+  byte led7 = EEPROM.read(memled7);
+  byte cont = EEPROM.read(memcontras);
+  byte apndata = EEPROM.read(memapn);
+  EEPROM.write(memr3, 0);
+  EEPROM.write(memr4, 0);
+  EEPROM.write(memr1, 0);
+  EEPROM.write(memr2, 0);
+  if ((lamp == 255) && (cont == 255) && (led7 == 255) && (apndata == 255)) // memori memiliki nilai default 255 setelah di hapus programnya. di berikanlah nilai default supaya nilai tidak 255
+  { serialmonitor.println("DEFAULT MEMORY");
+    dac.write(0, default_contras);
+    EEPROM.write(memcontras, default_contras / 10); // menulis data 60 kedalam memori contras
+    analogWrite(19, default_light);
+    EEPROM.write(memlight, default_light);
+    lc.setIntensity(0, default_led7);
+    EEPROM.write(memled7, default_led7);
+    apn = telkomsel1;////////////APN default yaitu Telkomsel >> internet
+    EEPROM.write(memapn, 1);
+    
+    EEPROM.write(mk0, 48);
+    EEPROM.write(mk1, 81);
+    EEPROM.write(mk2, 121);
+    EEPROM.write(mk3, 101);
+    EEPROM.write(mk4, 70);
+    EEPROM.write(mk5, 120);
+    EEPROM.write(mk6, 106);
+    EEPROM.write(mk7, 80);
+    
+    EEPROM.write(mjeda, 60);
+  }
+  else
+  { serialmonitor.println("FROM MEMORY");
+    dac.write(0, cont * 10); // di kali 10 karena dac untuk LCD minimal memiliki nilai 400 untuk bisa menampilkan sebuah karakter
+    analogWrite(19, lamp);
+    lc.setIntensity(0, led7);
+
+    if (apndata == 1)
+    {
+      apn = telkomsel1;
+      EEPROM.write(memapn, 1);
+    }
+    else if (apndata == 2)
+    {
+      apn = indosat2;
+      EEPROM.write(memapn, 2);
+    }
+    else if (apndata == 3)
+    {
+      apn = xl3;
+      EEPROM.write(memapn, 3);
+    }
+    else if (apndata == 4)
+    {
+      apn = tri4;
+      EEPROM.write(memapn, 4);
+    }
+    else if (apndata == 5)
+    {
+      apn = axis5;
+      EEPROM.write(memapn, 5);
+    }
+  }
+  char car[9];
+  car[0] = char(EEPROM.read(mk0));
+  car[1] = char(EEPROM.read(mk1));
+  car[2] = char(EEPROM.read(mk2));
+  car[3] = char(EEPROM.read(mk3));
+  car[4] = char(EEPROM.read(mk4));
+  car[5] = char(EEPROM.read(mk5));
+  car[6] = char(EEPROM.read(mk6));
+  car[7] = char(EEPROM.read(mk7));
+  car[8] = '\0';
+  sernum = String(car);
+  delay(1000);
+  pinMode(nozel, OUTPUT);
+  pinMode(fan, OUTPUT);
+  pinMode(buz, OUTPUT);
+  pinMode(r3, OUTPUT);
+  pinMode(r4, OUTPUT);
+  dht.begin();
+  dht2.begin();
+  lcd.clear();
+  GSM.begin(9600);
+  startupGSM();
+  lcd.clear();
+}
+
+
+void loop()
+{
+  hume1 = dht.readHumidity();
+  teme1 = dht.readTemperature();
+  byte teme3 = teme1;
+  byte hume3 = hume1;
+
+  sevensegment(teme1, hume1); // Untuk menampilkan angka di dalam Seven segment dan didalamnya sudah otomatis ter parsing
+
+  int suhumin = EEPROM.read(memtemmin);
+  int suhumax = EEPROM.read(memtemmax);
+  int kelmin = EEPROM.read(memhummin);
+  int kelmax = EEPROM.read(memhummax);
+  int lig = EEPROM.read(memlight);
+  int con = EEPROM.read(memcontras);
+  int led = EEPROM.read(memled7);
+  int coded = EEPROM.read(memcode);
+  byte rr3 = EEPROM.read(memr1);
+  byte rr4 = EEPROM.read(memr2);
+  byte mj = EEPROM.read(mjeda);
+  int jedagsm = 10 * mj;
+
+
+
+  tampil();// untuk menampilkan tulisan di layar LCD
+
+  if (teme3 >= suhumax) {
+    digitalWrite(fan, HIGH);
+
+    statusled1(1); //  void untuk mengaktifkan indikator led 1 pada seven segment  >>>  1 HIGH,, 0 LOW
+    stfan = 1;
+
+  }
+  if (teme3 <= suhumin) {
+    digitalWrite(fan, LOW);
+    statusled1(0);
+    stfan = 0;
+  }
+  if (hume3 >= kelmax) {
+    digitalWrite(nozel, LOW);
+    digitalWrite(r3, LOW);
+    digitalWrite(r4, LOW);
+    statusled2(0);
+    stpump = 0;  // status pompa untuk nanti nya di kirim ke web
+  }
+  if (hume3 <= kelmin) {
+    digitalWrite(nozel, HIGH);
+    digitalWrite(r3, HIGH);
+    digitalWrite(r4, HIGH);
+    statusled2(1); //  void untuk mengaktifkan indikator led 2 pada seven segment  >>>  1 HIGH,, 0 LOW
+    stpump = 1;    // status pompa untuk nanti nya di kirim ke web
+  }
+
+  keypad3x4(); // untuk scan keypad,,  karakter di tampilkan pada variabel "keypad"
+
+  if (keypad == '*')
+  { delay(290);
+    lcd.clear();
+    menu();
+    lcd.clear();
+  }
+
+  tampil();// untuk menampilkan tulisan di layar LCd
+
+
+  if ((millis() / 100) - durasi > jedagsm)   // untuk memberi jeda tertentu, pada detik tertentu agar GSM mengirim data ke web
+  { lcd.setCursor(19, 2);
+    lcd.print(":");
+    lcd.setCursor(19, 3);
+    lcd.print(":");
+    if (coded == 1)
+    { serialmonitor.println("SETTING");
+      serialmonitor.println("ISI ADALAH : " + content);
+      cek();
+      GSM.println("AT+HTTPREAD");
+      delay(600);
+      cek();
+      passing_logic_get();
+      GSM.println("AT+HTTPPARA=\"URL\",\"http://egrotek.com/setting/" + sernum + "/" + String(teme1) + "/" + String(hume1) + "/" +  String(stpump) + "/" +  String(stfan) + "/" +  String(xtmin) + "/" +  String(xtmax) + "/" +  String(xhumin) + "/" +  String(xhumax) + "/" +  String(xlig) + "/" +  String(xcon) + "/" +  String(xled7) + "/XL\"");
+      delay(800);
+      cek();
+      GSM.println("AT+HTTPACTION=0");
+      delay(500);
+
+      ulangkode++;
+      if (ulangkode == 3)
+      {
+        ulangkode = 0;
+        EEPROM.write(memcode, 0);
+      }
+    }
+
+    else
+    {
+      serialmonitor.println("ISI ADALAH : " + content);
+      cek();
+      GSM.println("AT+HTTPREAD");
+      delay(600);
+      cek();
+      passing_logic_get();
+      GSM.println("AT+HTTPPARA=\"URL\",\"http://egrotek.com/data/" + sernum + "/" + String(teme1) + "/" + String(hume1) + "/" + String(rr3) + "/" + String(rr4) + "/" +  String(stpump) + "/" +  String(stfan) + "/" +  String(suhumin) + "/" +  String(suhumax) + "/" +  String(kelmin) + "/" +  String(kelmax) + "/" +  String(lig) + "/" +  String(con) + "/" +  String(led) + "/XL\"");
+      delay(700);
+      cek();
+      GSM.println("AT+HTTPACTION=0");
+      delay(500);
+      serialmonitor.println("IDLE");
+    }
+    durasi = millis() / 100;
+  }
+
+}
+
+void powerGSM()
+{ pinMode(pwr, OUTPUT);
+  digitalWrite(pwr, HIGH);
+  delay(3000);
+  digitalWrite(pwr, LOW);
+  delay(3000);
+}
+
+void menu() {    /// void menu utama
+  int stp = 0;
+  lcd.clear();
+  statemenu = 0;
+
+x1:
+  stp++;
+
+  if (stp >= 400)  // untuk memberikan batasan,, kurang lebih dalam 6 detik akan keluar dari menu utama otomatis jika tidak ada perintah
+  {
+    return;
+  }
+
+  if (statemenu == 0)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("Setting Parameter");
+    lcd.setCursor(0, 1);
+    lcd.print("1.Humdty");
+    lcd.setCursor(0, 2);
+    lcd.print("2.Temp");
+    lcd.setCursor(0, 3);
+    lcd.print("3.Light");
+    lcd.setCursor(10, 1);
+    lcd.print("4.Contras");
+    lcd.setCursor(10, 2);
+    lcd.print("5.Led 7");
+    lcd.setCursor(10, 3);
+    lcd.print("6.APN");
+  }
+  if (statemenu == 1)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("Setting Parameter");
+    lcd.setCursor(0, 1);
+    lcd.print("7.About");
+    lcd.setCursor(0, 2);
+    lcd.print("8.Key Mod");
+    lcd.setCursor(0, 3);
+    lcd.print("9.API Key");
+    lcd.setCursor(10, 1);
+    lcd.print("0.Delay");
+    lcd.setCursor(10, 2);
+    lcd.print("");
+    lcd.setCursor(10, 3);
+    lcd.print("");
+  }
+
+  keypad3x4();
+  if (keypad == '*')
+  {
+    return;
+  }
+  else if (keypad == 'A')  // untuk menampilkan menu utama tampilan A
+  { delay(200);
+    lcd.clear();
+    statemenu = 0;
+    goto x1;
+  }
+  else if (keypad == 'B') // untuk menampilkan menu utama tampilan B
+  { delay(200);
+    lcd.clear();
+    statemenu = 1;
+    goto x1;
+  }
+
+  else if (keypad == '8')  // menu key mode
+  {
+    keymode();
+    delay(100);
+    lcd.clear();
+    goto x1;
+
+  }
+
+  else if (keypad == '1') // menu kelembaban
+  {
+    menu_kelembaban();
+    delay(50);
+    lcd.clear();
+  }
+  else if (keypad == '0') // menu kelembaban
+  {
+    menu_jeda();
+    delay(50);
+    lcd.clear();
+  }
+
+  else if (keypad == '2') // menu suhu
+  {
+    menu_suhu();
+    delay(50);
+    lcd.clear();
+  }
+
+  else if (keypad == '6') // menu APN
+  {
+    menu_apn();
+    delay(50);
+    lcd.clear();
+  }
+
+  else if (keypad == '3')  // menu Kecerahan layar LCD
+  {
+    light();
+    delay(50);
+    lcd.clear();
+    goto x1;
+  }
+  else if (keypad == '4') // menu Kontras LCD
+  {
+    contras();
+    delay(50);
+    lcd.clear();
+    goto x1;
+  }
+
+  else if (keypad == '5') // menu Kecerahan SEVEN SEGMENT
+  {
+    kecerahanled();
+    delay(50);
+    lcd.clear();
+    goto x1;
+  }
+
+  else if (keypad == '7')  // Menu About..
+  { loading();
+abou:
+    lcd.setCursor(0, 0);
+    lcd.print("Kontrol Rumah Jamur");
+    lcd.setCursor(3, 1);
+    lcd.print("IT Telkom PWT");
+    lcd.setCursor(0, 2);
+    lcd.print("Version :");
+    lcd.print(versi);
+    lcd.setCursor(0, 3);
+    lcd.print("API Key :");
+    lcd.print(sernum);
+    keypad3x4();
+    if (keypad == '*')
+    { delay(400);
+      lcd.clear();
+      return;
+    }
+    else
+    {
+      goto abou;
+    }
+  }
+
+  else if (keypad == '9') // menu Kecerahan SEVEN SEGMENT
+  {
+    apikey();
+    delay(50);
+    lcd.clear();
+    goto x1;
+  }
+
+  else if (keypad == 'S') {
+    goto x1;
+  }
+  else
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Menu Tidak Tersedia");
+    lcd.setCursor(0, 1);
+    lcd.print("=======>><<=======");
+    delay(500);
+    lcd.clear();
+    return;
+  }
+}
+
+void menu_jeda()
+{ byte mj = EEPROM.read(mjeda);
+  byte x = 1;
+  loading();
+  lcd.clear();
+lag:
+  lcd.setCursor(0, 0);
+  lcd.print("Interval Pengiriman");
+  lcd.setCursor(0, 1);
+  lcd.print("Sebelum :");
+  lcd.print(mj);
+  lcd.print(" detik");
+  lcd.setCursor(0, 2);
+  lcd.print("Setting :");
+  lcd.print(x);
+  lcd.print(" detik");
+
+  keypad3x4();
+  if (keypad == '2')
+  { delay(70);
+    if (x == 255)
+    {
+      goto lag;
+    }
+    else
+    {
+      x++;
+      goto lag;
+    }
+  }
+
+  else if (keypad == '8')
+  { delay(70);
+    if (x == 0)
+    {
+      goto lag;
+    }
+    else
+    {
+      x--;
+      goto lag;
+    }
+  }
+
+  else if (keypad == 'S')
+  {
+    goto lag;
+  }
+  else if (keypad == '*')
+  {
+    delay(200);
+    return;
+  }
+  else if (keypad == '#')
+  { delay(180);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("==Perubahan Sukes==");
+    lcd.setCursor(0, 1);
+    lcd.print("Delay : ");
+    lcd.print(x);
+    lcd.print(" detik");
+    EEPROM.write(mjeda, x);
+    delay(1500);
+    return;
+  }
+
+  else {
+    goto lag;
+  }
+
+}
+
+void apikey()
+{ byte kol = 8;
+  byte cha = 48;
+  char key[9];
+  loading();
+  lcd.clear();
+lagi:
+  lcd.setCursor(0, 0);
+  lcd.print("Setting API Key");
+  lcd.setCursor(0, 1);
+  lcd.print("API Key:");
+  lcd.setCursor(kol, 2);
+  lcd.print("_");
+  lcd.setCursor(0, 3);
+  lcd.print("Gunakan 2,8,4,6 #OKE");
+  keypad3x4();
+  if (keypad == '2')
+  { delay(100);
+    cha++;
+    lcd.setCursor(kol, 1);
+    lcd.print((char)cha);
+    key[kol - 8] = char(cha);
+    goto lagi;
+  }
+  else if (keypad == '8')
+  { delay(100);
+    cha--;
+    lcd.setCursor(kol, 1);
+    lcd.print((char)cha);
+    key[kol - 8] = char(cha);
+    goto lagi;
+  }
+  else if (keypad == 'A')
+  { delay(200);
+    cha = 47;
+    goto lagi;
+  }
+  else if (keypad == 'B')
+  { delay(200);
+    cha = 64;
+    goto lagi;
+  }
+  else if (keypad == 'C')
+  { delay(200);
+    cha = 96;
+    goto lagi;
+  }
+  else if (keypad == '6')
+  {
+    delay(100);
+    lcd.setCursor(kol, 2);
+    lcd.print(" ");
+    if (kol == 15)
+    {
+      kol = 15;
+    }
+    else
+    {
+      kol++;
+    }
+    goto lagi;
+  }
+  else if (keypad == '4')
+  {
+    delay(100);
+    lcd.setCursor(kol, 2);
+    lcd.print(" ");
+    if (kol == 8)
+    {
+      kol = 8;
+    }
+    else
+    {
+      kol--;
+    }
+    goto lagi;
+  }
+  else if (keypad == '*')
+  {
+    delay(200);
+    return;
+  }
+  else if (keypad == '#')
+  { if ((key[0] == '\0') or (key[1] == '\0') or (key[2] == '\0') or (key[3] == '\0') or (key[4] == '\0') or (key[5] == '\0') or (key[6] == '\0') or (key[7] == '\0'))
+    { delay(180);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Harus 8 Karakter!");
+      delay(1000);
+      lcd.clear();
+      kol = 8;
+      cha = 48;
+      goto lagi;
+    }
+    else {
+      delay(180);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("==Perubahan Sukes==");
+      lcd.setCursor(0, 1);
+      lcd.print("API Key: ");
+      key[8] = '\0';
+
+      EEPROM.write(mk0, key[0]);
+      EEPROM.write(mk1, key[1]);
+      EEPROM.write(mk2, key[2]);
+      EEPROM.write(mk3, key[3]);
+      EEPROM.write(mk4, key[4]);
+      EEPROM.write(mk5, key[5]);
+      EEPROM.write(mk6, key[6]);
+      EEPROM.write(mk7, key[7]);
+      char car[9];
+      car[0] = char(EEPROM.read(mk0));
+      car[1] = char(EEPROM.read(mk1));
+      car[2] = char(EEPROM.read(mk2));
+      car[3] = char(EEPROM.read(mk3));
+      car[4] = char(EEPROM.read(mk4));
+      car[5] = char(EEPROM.read(mk5));
+      car[6] = char(EEPROM.read(mk6));
+      car[7] = char(EEPROM.read(mk7));
+      car[8] = '\0';
+      lcd.print(car);
+      sernum = String(car);
+      delay(1000);
+    }
+    return;
+  }
+  else
+  {
+    goto lagi;
+  }
+
+}
+
+void menu_apn()//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+ap:
+  String kartu;
+  int apn2 = EEPROM.read(memapn);
+  if (apn2 == 1)
+  { apn = telkomsel1;
+    kartu = "TSEL";
+  }
+  else if (apn2 == 2)
+  { apn = indosat2;
+    kartu = "ISAT";
+  }
+  else if (apn2 == 3)
+  { apn = xl3;
+    kartu = "XL";
+  }
+  else if (apn2 == 4)
+  { apn = tri4;
+    kartu = "TRI";
+  }
+  else if (apn2 == 5)
+  { apn = axis5;
+    kartu = "AXIS";
+  }
+
+  lcd.setCursor(0, 0);
+  lcd.print("Pilih APN :  (");
+  lcd.print(kartu);
+  lcd.print(")");
+  lcd.setCursor(0, 1);
+  lcd.print("===================");
+  lcd.setCursor(0, 2);
+  lcd.print("1.TSEL 2.ISAT 3.XL");
+  lcd.setCursor(0, 3);
+  lcd.print("4.TRI  5.AXIS #.OK");
+
+  keypad3x4();
+  if (keypad == '*') {
+    return;
+  }
+  else if (keypad == '1') {
+    delay(200);
+    lcd.clear();
+    EEPROM.write(memapn, 1);
+    goto ap;
+  }
+  else if (keypad == '2') {
+    delay(200);
+    lcd.clear();
+    EEPROM.write(memapn, 2);
+    goto ap;
+  }
+  else if (keypad == '3') {
+    delay(200);
+    lcd.clear();
+    EEPROM.write(memapn, 3);
+    goto ap;
+  }
+  else if (keypad == '4') {
+    delay(200);
+    lcd.clear();
+    EEPROM.write(memapn, 4);
+    goto ap;
+  }
+  else if (keypad == '5') {
+    delay(200);
+    lcd.clear();
+    EEPROM.write(memapn, 5);
+    goto ap;
+  }
+  else if (keypad == '#') {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Merubah APN..");
+    //EEPROM.write(memcode, 1);
+    lcd.blink();
+    delay(1000);
+    lcd.noBlink();
+    delay(1000);
+    lcd.setCursor(0, 1);
+    lcd.print("=======Sukses=======");
+    lcd.setCursor(0, 2);
+    lcd.print("Silakan");
+    lcd.setCursor(0, 3);
+    lcd.print("Matikan Ulang..!");
+    delay(1000);
+    lcd.clear();
+  }
+  else
+  {
+    goto ap;
+  }
+  return;
+}
+
+void loading()
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Loading..");
+  lcd.blink();
+  delay(900);
+  lcd.noBlink();
+  lcd.clear();
+}
+
+void kecerahanled() /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+led:
+  byte d;
+  lcd.setCursor(0, 0);
+  lcd.print("   Kecerahan LED");
+  lcd.setCursor(0, 1);
+  lcd.print("=======(1-9)=======");
+  lcd.setCursor(0, 2);
+  lcd.print("Silakan Tekan Angka");
+
+  keypad3x4();
+  if (keypad == '0') {
+    d = 0;
+    lc.setIntensity(0, 0);
+    EEPROM.write(memled7, 0);
+    xled7=0;
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '1') {
+    d = 1;
+    lc.setIntensity(0, 1);
+    EEPROM.write(memled7, 1);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '2') {
+    d = 2;
+    lc.setIntensity(0, 2);
+    EEPROM.write(memled7, 2);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '3') {
+    d = 3;
+    lc.setIntensity(0, 3);
+    EEPROM.write(memled7, 3);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '4') {
+    d = 4;
+    lc.setIntensity(0, 4);
+    EEPROM.write(memled7, 4);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '5') {
+    d = 6;
+    lc.setIntensity(0, 6);
+    EEPROM.write(memled7, 6);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '6') {
+    d = 8;
+    lc.setIntensity(0, 8);
+    EEPROM.write(memled7, 8);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '7') {
+    d = 10;
+    lc.setIntensity(0, 10);
+    EEPROM.write(memled7, 10);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '8') {
+    d = 13;
+    lc.setIntensity(0, 13);
+    EEPROM.write(memled7, 13);
+    sevensegment(teme, hume);
+    goto led;
+  }
+  else if (keypad == '9') {
+    d = 15;
+    lc.setIntensity(0, 15);
+    EEPROM.write(memled7, 15);
+    sevensegment(teme, hume);
+    goto led;
+  }
+
+  else if (keypad == 'S') {
+    goto led;
+  }
+  else if (keypad == '*') {
+    delay(400);
+    return;
+  }
+  else if (keypad == '#') {
+    xled7=d;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kec.LED");
+    lcd.setCursor(0, 2);
+    lcd.print("Uploading..");
+    EEPROM.write(memcode, 1);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kec.LED");
+    lcd.setCursor(0, 2);
+    lcd.print("=======SUKSES=======");
+    delay(1000);
+    lcd.clear();
+  }
+  else {
+    goto led;
+  }
+  delay(300);
+}
+
+
+
+void light() //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+lig:
+  byte d;
+  lcd.setCursor(0, 0);
+  lcd.print(" Pilihan Kecerahan");
+  lcd.setCursor(0, 1);
+  lcd.print("=======(1-9)=======");
+  lcd.setCursor(0, 2);
+  lcd.print("Silakan Tekan Angka");
+  keypad3x4();
+  if (keypad == '0') {
+    d = 0;
+    analogWrite(19, 0);
+    EEPROM.write(memlight, 0);
+    goto lig;
+  }
+  else if (keypad == '1') {
+    d = 15;
+    analogWrite(19, 15);
+    EEPROM.write(memlight, 15);
+    goto lig;
+  }
+  else if (keypad == '2') {
+    d = 26;
+    analogWrite(19, 26);
+    EEPROM.write(memlight, 26);
+    goto lig;
+  }
+  else if (keypad == '3') {
+    d = 60;
+    analogWrite(19, 60);
+    EEPROM.write(memlight, 60);
+    goto lig;
+  }
+  else if (keypad == '4') {
+    d = 90;
+    analogWrite(19, 90);
+    EEPROM.write(memlight, 90);
+    goto lig;
+  }
+  else if (keypad == '5') {
+    d = 120;
+    analogWrite(19, 120);
+    EEPROM.write(memlight, 120);
+    goto lig;
+  }
+  else if (keypad == '6') {
+    d = 150;
+    analogWrite(19, 150);
+    EEPROM.write(memlight, 150);
+    goto lig;
+  }
+  else if (keypad == '7') {
+    d = 180;
+    analogWrite(19, 180);
+    EEPROM.write(memlight, 180);
+    goto lig;
+  }
+  else if (keypad == '8') {
+    d = 210;
+    analogWrite(19, 210);
+    EEPROM.write(memlight, 210);
+    goto lig;
+  }
+  else if (keypad == '9') {
+    d = 255;
+    analogWrite(19, 255);
+    EEPROM.write(memlight, 255);
+    goto lig;
+  }
+  else if (keypad == 'S') {
+    goto lig;
+  }
+  else if (keypad == '*') {
+    delay(400);
+    return;
+  }
+  else if (keypad == '#') {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kecerahan");
+    lcd.setCursor(0, 2);
+    lcd.print("Uploading..");
+    EEPROM.write(memcode, 1);
+    xlig=d;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kecerahan");
+    lcd.setCursor(0, 2);
+    lcd.print("=======SUKSES=======");
+    delay(1000);
+    lcd.clear();
+  }
+  else {
+    goto lig;
+  }
+  delay(300);
+
+}
+
+void keymode() ////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+  int xx = 0;
+back:
+  lcd.setCursor(0, 0);
+  lcd.print("Mode Scan Key");
+  lcd.setCursor(0, 2);
+  lcd.print("Value is : ");
+  lcd.print(analogRead(A5));
+  keypad3x4();
+  lcd.setCursor(0, 3);
+  lcd.print("Key is   : ");
+  lcd.print(keypad);
+  delay(125);
+  xx++;
+  if (xx != 40) // otomatis keluar dari keymode dalam kurang lebih 6 detik
+  {
+    goto back;
+  }
+  else {
+    return;
+  }
+}
+
+void contras() //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+con:
+  byte d;
+  lcd.setCursor(0, 0);
+  lcd.print("  Pilihan Kontras");
+  lcd.setCursor(0, 1);
+  lcd.print("=======(1-9)=======");
+  lcd.setCursor(0, 2);
+  lcd.print("Silakan Tekan Angka");
+  keypad3x4();
+  if (keypad == '0') {
+    d = 0;
+    dac.write(0, 0);
+    EEPROM.write(memcontras, 0);
+    goto con;
+  }
+  else if (keypad == '1') {
+    d = 10;
+    dac.write(0, 100);
+    EEPROM.write(memcontras, 10); // walau sepuluh,, tapi di dacnya tetulis hasil kali 10
+    goto con;
+  }
+  else if (keypad == '2') {
+    d = 20;
+    dac.write(0, 200);
+    EEPROM.write(memcontras, 20);
+    goto con;
+  }
+  else if (keypad == '3') {
+    d = 30;
+    dac.write(0, 300);
+    EEPROM.write(memcontras, 30);
+    goto con;
+  }
+  else if (keypad == '4') {
+    d = 40;
+    dac.write(0, 400);
+    EEPROM.write(memcontras, 40);
+    goto con;
+  }
+  else if (keypad == '5') {
+    d = 60;
+    dac.write(0, 600);
+    EEPROM.write(memcontras, 60);
+    goto con;
+  }
+  else if (keypad == '6') {
+    d = 80;
+    dac.write(0, 800);
+    EEPROM.write(memcontras, 80);
+    goto con;
+  }
+  else if (keypad == '7') {
+    d = 100;
+    dac.write(0, 1000);
+    EEPROM.write(memcontras, 100);
+    goto con;
+  }
+  else if (keypad == '8') {
+    d = 120;
+    dac.write(0, 1200);
+    EEPROM.write(memcontras, 120);
+    goto con;
+  }
+  else if (keypad == '9') {
+    d = 140;
+    dac.write(0, 1400);
+    EEPROM.write(memcontras, 140);
+    goto con;
+  }
+  else if (keypad == 'S') {
+    goto con;
+  }
+  else if (keypad == '*') {
+    delay(400);
+    return;
+  }
+  else if (keypad == '#') {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kontrast");
+    lcd.setCursor(0, 2);
+    lcd.print("Uploading..");
+    EEPROM.write(memcode, 1);
+    xcon=d;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Perubahan Kontrast");
+    lcd.setCursor(0, 2);
+    lcd.print("=======SUKSES=======");
+    delay(1000);
+    lcd.clear();
+  }
+  else {
+    goto con;
+  }
+  delay(500);
+
+}
+
+void tampil()  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ byte hume1 = dht.readHumidity();
+  byte teme1 = dht.readTemperature();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Kontrol Rumah Jamur ");
+  lcd.setCursor(3, 1);
+  lcd.print("IT Telkom PWT    ");
+  lcd.setCursor(0, 3);
+  lcd.print("Temp:");
+  lcd.print(int(teme1));
+  lcd.print((char)223);
+  lcd.print("C");
+  lcd.print("  Hum:");
+  lcd.print(int(hume1));
+  lcd.print("%");
+  lcd.setCursor(19, 2);
+  lcd.print(" ");
+  lcd.setCursor(19, 3);
+  lcd.print(" ");
+}
+
+
+void menu_suhu() //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ loading();
+  lcd.setCursor(0, 0);
+  lcd.print("Perubahan Suhu");
+  lcd.setCursor(0, 1);
+  lcd.print("Min : ");
+  lcd.print(EEPROM.read(memtemmin), DEC);
+  lcd.print(" =>");
+  lcd.setCursor(0, 2);
+  lcd.print("Max : ");
+  lcd.print(EEPROM.read(memtemmax), DEC);
+  lcd.print(" =>");
+
+  int s1 = 0;
+x1:
+  keypad3x4();
+  delay(50);
+  if ((keypad != 'S') and (keypad != '*') and (keypad != '#'))
+  {
+    lcd.setCursor(12 + s1, 1);
+    lcd.print(keypad);
+    delay(100);
+    tempmin[s1] = keypad;
+    s1++;
+    if (s1 == 2)
+    { x2:
+      keypad3x4();
+      delay(50);
+      if (keypad == '#')
+      { lcd.setCursor(12 + s1, 1);
+        lcd.print(" OK");
+        delay(100);
+        goto x5;
+      }
+      else {
+        goto x2;
+      }
+    }
+    else {
+      goto x1;
+    }
+  }
+  else if (keypad == '*')
+  {
+    s1 = 0;
+    return;
+  }
+  else {
+    goto x1;
+  }
+
+x5:
+  beep();
+  int s2 = 0;
+x3:
+  keypad3x4();
+  delay(50);
+  if ((keypad != 'S') and (keypad != '*') and (keypad != '#'))
+  {
+    lcd.setCursor(12 + s2, 2);
+    lcd.print(keypad);
+    delay(100);
+    tempmax[s2] = keypad;
+    s2++;
+    if (s2 == 2)
+    { x4:
+      keypad3x4();
+      delay(50);
+      if (keypad == '#')
+      { lcd.setCursor(12 + s2, 2);
+        lcd.print(" OK");
+        delay(100);
+        goto finish;
+      }
+      else {
+        goto x4;
+      }
+    }
+
+    else {
+      goto x3;
+    }
+  }
+  else if (keypad == '*')
+  {
+    s2 = 0;
+    return;
+  }
+  else {
+    goto x3;
+  }
+
+finish:
+  delay(80);
+  tempmin2 = String(tempmin);
+  tempmax2 = String(tempmax);
+  int tmin;
+  int tmax;
+  EEPROM.write(memtemmin, tmin = atoi(tempmin2.c_str()));
+  EEPROM.write(memtemmax, tmax = atoi(tempmax2.c_str()));
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("   Perubahan Suhu");
+  lcd.setCursor(0, 1);
+  lcd.print("Uploading...");
+  EEPROM.write(memcode, 1);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("   Perubahan Suhu");
+  lcd.setCursor(0, 1);
+  lcd.print("=======SUKSES=======");
+  beep();
+  delay(50);
+  beep();
+  lcd.setCursor(0, 2);
+  lcd.print("Temp Min : ");
+  lcd.print(EEPROM.read(5), DEC);
+  lcd.setCursor(0, 3);
+  lcd.print("Temp Max : ");
+  lcd.print(EEPROM.read(6), DEC);
+  xtmin=EEPROM.read(5);
+  xtmax=EEPROM.read(6);
+  delay(2200);
+}
+
+
+void menu_kelembaban() /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  loading();
+  lcd.setCursor(0, 0);
+  lcd.print("Perubahan Kelembaban");
+  lcd.setCursor(0, 1);
+  lcd.print("Min : ");
+  lcd.print(EEPROM.read(memhummin), DEC);
+  lcd.print(" =>");
+  lcd.setCursor(0, 2);
+  lcd.print("Max : ");
+  lcd.print(EEPROM.read(memhummax), DEC);
+  lcd.print(" =>");
+
+  int h1 = 0;
+y1:
+  keypad3x4();
+  delay(50);
+  if ((keypad != 'S') and (keypad != '*') and (keypad != '#'))
+  {
+    lcd.setCursor(12 + h1, 1);
+    lcd.print(keypad);
+    delay(100);
+    hummin[h1] = keypad;
+    h1++;
+    if (h1 == 2)
+    { y2:
+      keypad3x4();
+      delay(50);
+      if (keypad == '#')
+      { lcd.setCursor(12 + h1, 1);
+        lcd.print(" OK");
+        delay(100);
+        goto y5;
+      }
+      else {
+        goto y2;
+      }
+    }
+    else {
+      goto y1;
+    }
+  }
+  else if (keypad == '*')
+  {
+    h1 = 0;
+    return;
+  }
+  else {
+    goto y1;
+  }
+
+y5:
+  beep();
+  int h2 = 0;
+y3:
+  keypad3x4();
+  delay(50);
+  if ((keypad != 'S') and (keypad != '*') and (keypad != '#'))
+  {
+    lcd.setCursor(12 + h2, 2);
+    lcd.print(keypad);
+    delay(100);
+    hummax[h2] = keypad;
+    h2++;
+    if (h2 == 2)
+    { y4:
+      keypad3x4();
+      delay(50);
+      if (keypad == '#')
+      { lcd.setCursor(12 + h2, 2);
+        lcd.print(" OK");
+        delay(100);
+        goto finish2;
+      }
+      else {
+        goto y4;
+      }
+    }
+
+    else {
+      goto y3;
+    }
+  }
+  else if (keypad == '*')
+  {
+    h2 = 0;
+    return;
+  }
+  else {
+    goto y3;
+  }
+
+finish2:
+  delay(80);
+  hummin2 = String(hummin);
+  hummax2 = String(hummax);
+  int hmin;
+  int hmax;
+  EEPROM.write(memhummin, hmin = atoi(hummin2.c_str()));
+  EEPROM.write(memhummax, hmax = atoi(hummax2.c_str()));
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Perubahan Kelembaban");
+  lcd.setCursor(0, 1);
+  lcd.print("Uploading...");
+  EEPROM.write(memcode, 1);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Perubahan Kelembaban");
+  lcd.setCursor(0, 1);
+  lcd.print("=======SUKSES=======");
+  beep();
+  delay(50);
+  beep();
+  lcd.setCursor(0, 2);
+  lcd.print("Hum Min : ");
+  lcd.print(EEPROM.read(2), DEC);
+  lcd.setCursor(0, 3);
+  lcd.print("Hum Max : ");
+  lcd.print(EEPROM.read(3), DEC);
+  xhumin=EEPROM.read(2);
+  xhumax=EEPROM.read(3);
+  delay(2200);
+}
+
+
+
+void keypad3x4()  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  byte stage = 0;
+k1:
+  int k = analogRead(A5);
+
+  if ((k >= 155) and (k <= 177))
+  {
+    keypad = '1'; stage = 1; delay(50);
+  }
+
+  else if ((k >= 112) and (k <= 122))
+  {
+    keypad = '2'; stage = 1; delay(50);
+  }
+
+  else if ((k >= 60) and (k <= 70))
+  {
+    keypad = '3'; stage = 1; delay(50);
+  }
+  else if ((k >= 275) and (k <= 285))
+  {
+    keypad = '4'; stage = 1; delay(50);
+  }
+  else if ((k >= 250) and (k <= 260))
+  {
+    keypad = '5'; stage = 1; delay(50);
+  }
+  else if ((k >= 220) and (k <= 230))
+  {
+    keypad = '6'; stage = 1; delay(50);
+  }
+  else if ((k >= 355) and (k <= 365))
+  {
+    keypad = '7'; stage = 1; delay(50);
+  }
+  else if ((k >= 335) and (k <= 352))
+  {
+    keypad = '8'; stage = 1; delay(50);
+  }
+  else if ((k >= 315) and (k <= 333))
+  {
+    keypad = '9'; stage = 1; delay(50);
+  }
+  else if ((k >= 410) and (k <= 420))
+  {
+    keypad = '*'; stage = 1; delay(50);
+  }
+  else if ((k >= 400) and (k <= 410))
+  {
+    keypad = '0'; stage = 1; delay(50);
+  }
+  else if ((k >= 385) and (k <= 395))
+  {
+    keypad = '#'; stage = 1; delay(50);
+  }
+  else if (k <= 50)
+  {
+    keypad = 'A'; stage = 1; delay(50);
+  }
+  else if ((k >= 185) and (k <= 195))
+  {
+    keypad = 'B'; stage = 1; delay(50);
+  }
+  else if ((k >= 295) and (k <= 305))
+  {
+    keypad = 'C'; stage = 1; delay(50);
+  }
+  else if ((k >= 370) and (k <= 380))
+  {
+    keypad = 'D'; stage = 1; delay(50);
+  }
+
+  else if ((k >= 500 ) and (k <= 520))
+  {
+    keypad = 'S'; stage = 0;
+  }
+
+
+  else {
+    keypad = 'S'; stage = 0;
+  }
+  if (keypad != 'S')
+  {
+    beep();
+  }
+
+}
+
+void beep()//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  analogWrite(buz, 255);
+  delay(25);
+  analogWrite(buz, 0);
+}
+
+
+void startupGSM() ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ set = 0;
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Kontrol Rumah Jamur");
+  lcd.setCursor(3, 1);
+  lcd.print("IT Telkom PWT    ");
+st:
+  lcd.setCursor(0, 3);
+  lcd.print("Setup...(");
+  float d = set / 100;
+  lcd.print(d);
+  lcd.print("%)");
+  serialmonitor.print("Setup...(");
+  serialmonitor.print(d);
+  serialmonitor.println("%)");
+  set = set + 15;
+
+  if (set < 10000)
+  {
+    goto st;
+  }
+  else
+  {
+    lcd.setCursor(0, 3);
+    lcd.print("Setup...(100%)     ");
+    serialmonitor.println("Setup...(100%)     ");
+    delay(1000);
+  }
+
+  GSM.println("AT");
+  delay(500);
+  cek();
+
+  GSM.println("AT+SAPBR=3,1,\"APN\",\"" + apn + "\"");
+  delay(1000);
+  cek();
+
+  GSM.println("AT+SAPBR=1,1");
+  delay(5000);
+  cek();
+
+  GSM.println("AT+HTTPINIT");
+  delay(5000);
+  cek();
+
+  GSM.println("AT+HTTPPARA=\"CID\",1");
+  delay(2000);
+  cek();
+
+  lcd.clear();
+}
+
+void cek()
+{ content = "";
+
+  while (GSM.available() != 0)
+    content = content + char(GSM.read());
+  serialmonitor.print("ISI ADALAH : " + content);
+}
+
+void passing_logic_get() ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{ byte apos1, apos2, apos3, apos4, apos5, apos6, apos7, apos8, apos9, apos10, apos11, apos12, apos13;
+  String data11 = "", data12 = ""; data1 = ""; data2 = ""; data3 = ""; data4 = ""; data5 = ""; data6 = ""; data7 = ""; data8 = ""; data9 = ""; data10 = "";
+  apos1 = content.indexOf(';');
+  apos2 = content.indexOf(';', apos1 + 1);
+  apos3 = content.indexOf(';', apos2 + 1);
+  apos4 = content.indexOf(';', apos3 + 1);
+  apos5 = content.indexOf(';', apos4 + 1);
+  apos6 = content.indexOf(';', apos5 + 1);
+  apos7 = content.indexOf(';', apos6 + 1);
+  apos8 = content.indexOf(';', apos7 + 1);
+  apos9 = content.indexOf(';', apos8 + 1);
+  apos10 = content.indexOf(';', apos9 + 1);
+  apos11 = content.indexOf(';', apos10 + 1);
+  apos12 = content.indexOf(';', apos11 + 1);
+  apos13 = content.indexOf(';', apos12 + 1);
+
+  data1 = content.substring(apos1 + 1, apos2);
+  data2 = content.substring(apos2 + 1, apos3);
+  data3 = content.substring(apos3 + 1, apos4);
+  data4 = content.substring(apos4 + 1, apos5);
+  data5 = content.substring(apos5 + 1, apos6);
+  data6 = content.substring(apos6 + 1, apos7);
+  data7 = content.substring(apos7 + 1, apos8);
+  data8 = content.substring(apos8 + 1, apos9);
+  data9 = content.substring(apos9 + 1, apos10);
+  data10 = content.substring(apos10 + 1, apos11);
+  data11 = content.substring(apos11 + 1, apos12);
+  data12 = content.substring(apos12 + 1, apos13);
+
+  serialmonitor.println(data1);
+  serialmonitor.println(data2);
+  serialmonitor.println(data3);
+  serialmonitor.println(data4);
+  serialmonitor.println(data5);
+  serialmonitor.println(data6);
+  serialmonitor.println(data7);
+  serialmonitor.println(data8);
+  serialmonitor.println(data9);
+  serialmonitor.println(data10);
+  serialmonitor.println(data11);
+  serialmonitor.println(data12);
+
+
+
+  if ((data1 != "") && (data2 != "") && (data3 != "") && (data4 != ""))
+  {
+    suk++;
+    int a, b, c, d, e, f, g, h, i, j, k;
+    EEPROM.write(memr1, a = atoi(data1.c_str()));
+    EEPROM.write(memr2, b = atoi(data2.c_str()));
+    EEPROM.write(memr3, c = atoi(data3.c_str()));
+    EEPROM.write(memr4, d = atoi(data4.c_str()));
+    EEPROM.write(memtemmin, e = atoi(data5.c_str()));
+    EEPROM.write(memtemmax, f = atoi(data6.c_str()));
+    EEPROM.write(memhummin, g = atoi(data7.c_str()));
+    EEPROM.write(memhummax, h = atoi(data8.c_str()));
+    EEPROM.write(memlight, i = atoi(data9.c_str()));
+    analogWrite(19, i = atoi(data9.c_str()));
+    EEPROM.write(memcontras, j = atoi(data10.c_str()));
+    dac.write(0, j = 10 * atoi(data10.c_str()));
+    EEPROM.write(memled7, k = atoi(data11.c_str()));
+    lc.setIntensity(0, k = atoi(data11.c_str()));
+    sevensegment(teme1, hume1);
+
+  }
+}
+
+
+
+void statusled2(byte s)///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  if (s == 1)
+  {
+    lc.setColumn(0, 3, on);
+  }
+  else if (s == 0)
+  {
+    lc.setColumn(0, 3, off);
+  }
+}
+
+void statusled1(byte s)///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  if (s == 1)
+  {
+    lc.setColumn(0, 7, on);
+  }
+  else if (s == 0)
+  {
+    lc.setColumn(0, 7, off);
+  }
+}
+
+void sevensegment(float suhu, float kelembaban)////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  String x, y, z, a, b, c;
+  String contemp = String(suhu);
+  byte digit1 = 2, digit2 = 6, digit3 = 1, digit4 = 4, digit5 = 0, digit6 = 5;
+  a = contemp.substring(0, 1); b = contemp.substring(1, 2); c = contemp.substring(3, 4);
+  String conhum = String(kelembaban);
+  x = conhum.substring(0, 1); y = conhum.substring(1, 2); z = conhum.substring(3, 4);
+  cetakdigit(digit1, a);
+  cetakdigitcoma(digit2, b);
+  cetakdigit(digit3, c);
+  cetakdigit(digit4, x);
+  cetakdigitcoma(digit5, y);
+  cetakdigit(digit6, z);
+}
+
+
+
+void cetakdigit(byte a, String x)////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  if (x == "0")
+  {
+    lc.setColumn(0, a, nol);
+  }
+  else if (x == "")
+  {
+    lc.setColumn(0, a, nol);
+  }
+  else if (x == "1")
+  {
+    lc.setColumn(0, a, satu);
+  }
+  else if (x == "2")
+  {
+    lc.setColumn(0, a, dua);
+  }
+  else if (x == "3")
+  {
+    lc.setColumn(0, a, tiga);
+  }
+  else if (x == "4")
+  {
+    lc.setColumn(0, a, empat);
+  }
+  else if (x == "5")
+  {
+    lc.setColumn(0, a, lima);
+  }
+  else if (x == "6")
+  {
+    lc.setColumn(0, a, enam);
+  }
+  else if (x == "7")
+  {
+    lc.setColumn(0, a, tujuh);
+  }
+  else if (x == "8")
+  {
+    lc.setColumn(0, a, delapan);
+  }
+  else if (x == "9")
+  {
+    lc.setColumn(0, a, sembilan);
+  }
+}
+
+
+void cetakdigitcoma(byte a, String x)////////////////////////////////////////////////////////////////////////////////////////////////
+{
+  if (x == "0")
+  {
+    lc.setColumn(0, a, nolcom);
+  }
+  else if (x == "")
+  {
+    lc.setColumn(0, a, nolcom);
+  }
+  else if (x == "1")
+  {
+    lc.setColumn(0, a, satucom);
+  }
+  else if (x == "2")
+  {
+    lc.setColumn(0, a, duacom);
+  }
+  else if (x == "3")
+  {
+    lc.setColumn(0, a, tigacom);
+  }
+  else if (x == "4")
+  {
+    lc.setColumn(0, a, empatcom);
+  }
+  else if (x == "5")
+  {
+    lc.setColumn(0, a, limacom);
+  }
+  else if (x == "6")
+  {
+    lc.setColumn(0, a, enamcom);
+  }
+  else if (x == "7")
+  {
+    lc.setColumn(0, a, tujuhcom);
+  }
+  else if (x == "8")
+  {
+    lc.setColumn(0, a, delapancom);
+  }
+  else if (x == "9")
+  {
+    lc.setColumn(0, a, sembilancom);
+  }
+}
